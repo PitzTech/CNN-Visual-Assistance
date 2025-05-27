@@ -59,7 +59,11 @@ class ObjectDetectionSystem:
                 model_info = json.load(f)
                 self.classes = model_info['classes']
                 self.class_mapping = model_info['class_mapping']
-                print(f"Classes carregadas: {len(self.classes)}")
+                print(f"\n=== OBJETOS DETECTÁVEIS ===")
+                print(f"Total de classes: {len(self.classes)}")
+                for i, class_name in enumerate(self.classes):
+                    print(f"{i}: {class_name}")
+                print("=" * 30)
     
     def get_available_cameras(self):
         """
@@ -151,47 +155,47 @@ class ObjectDetectionSystem:
     def detect_objects(self, image):
         """
         Detecta objetos na imagem usando o modelo treinado
-        Suporta múltiplos objetos simultaneamente
+        Retorna apenas o objeto com maior confiança e sua bounding box precisa
         """
         processed_image = self.preprocess_image(image)
         
         # Realizar previsão
         class_probs, bbox_coords = self.model.predict(processed_image, verbose=0)
         
-        # Processar resultados para múltiplos objetos
+        # Processar resultados
         detected_objects = []
         
-        # Processar todas as classes (excluindo background)
-        for class_idx in range(1, len(self.classes)):
-            confidence = class_probs[0][class_idx]
+        # Encontrar a classe com maior probabilidade (excluindo background)
+        class_idx = np.argmax(class_probs[0][1:]) + 1  # +1 porque excluímos background
+        max_confidence = class_probs[0][class_idx]
+        
+        if max_confidence > self.confidence_threshold:
+            # Extrair coordenadas da bounding box (apenas uma por imagem)
+            y_min, x_min, y_max, x_max = bbox_coords[0]
             
-            if confidence > self.confidence_threshold:
-                # Extrair coordenadas da bounding box
-                y_min, x_min, y_max, x_max = bbox_coords[0]
-                
-                # Converter para coordenadas de pixel
-                x_min = int(x_min * image.shape[1])
-                y_min = int(y_min * image.shape[0])
-                x_max = int(x_max * image.shape[1])
-                y_max = int(y_max * image.shape[0])
-                
-                # Garantir que as coordenadas estão dentro da imagem
-                x_min = max(0, min(x_min, image.shape[1]))
-                y_min = max(0, min(y_min, image.shape[0]))
-                x_max = max(0, min(x_max, image.shape[1]))
-                y_max = max(0, min(y_max, image.shape[0]))
-                
-                detected_objects.append({
-                    'name': self.classes[class_idx],
-                    'confidence': float(confidence),
-                    'coords': [
-                        {'x': x_min, 'y': y_min},  # top-left
-                        {'x': x_max, 'y': y_min},  # top-right
-                        {'x': x_max, 'y': y_max},  # bottom-right
-                        {'x': x_min, 'y': y_max}   # bottom-left
-                    ],
-                    'bbox': (x_min, y_min, x_max, y_max)
-                })
+            # Converter para coordenadas de pixel
+            x_min = int(x_min * image.shape[1])
+            y_min = int(y_min * image.shape[0])
+            x_max = int(x_max * image.shape[1])
+            y_max = int(y_max * image.shape[0])
+            
+            # Garantir que as coordenadas estão dentro da imagem
+            x_min = max(0, min(x_min, image.shape[1]))
+            y_min = max(0, min(y_min, image.shape[0]))
+            x_max = max(0, min(x_max, image.shape[1]))
+            y_max = max(0, min(y_max, image.shape[0]))
+            
+            detected_objects.append({
+                'name': self.classes[class_idx],
+                'confidence': float(max_confidence),
+                'coords': [
+                    {'x': x_min, 'y': y_min},  # top-left
+                    {'x': x_max, 'y': y_min},  # top-right
+                    {'x': x_max, 'y': y_max},  # bottom-right
+                    {'x': x_min, 'y': y_max}   # bottom-left
+                ],
+                'bbox': (x_min, y_min, x_max, y_max)
+            })
         
         return detected_objects
 
