@@ -2,12 +2,9 @@ import os
 import cv2
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.applications import MobileNetV2
-from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
-from tensorflow.keras.layers import Dense, GlobalAveragePooling2D, Reshape, Conv2D, Dropout
-from tensorflow.keras.models import Model
+from tensorflow.keras.models import load_model
 import time
-import pygame
+import json
 
 # Configure GPU usage - Optimized for RTX 4080 Super
 gpus = tf.config.list_physical_devices('GPU')
@@ -25,97 +22,121 @@ else:
 
 class ObjectDetectionSystem:
     """
-    Sistema de detecção de objetos em ambientes educacionais usando MobileNetSSD
+    Sistema de detecção de objetos em ambientes educacionais usando modelo treinado
     para inclusão de pessoas com deficiência visual.
     """
 
     def __init__(self):
         # Configurações
         self.confidence_threshold = 0.6
-        self.input_size = (300, 300)  # Tamanho padrão para MobileNetSSD
+        self.input_size = (300, 300)
+        
+        # Carregar modelo treinado e informações
+        self.model = None
+        self.classes = []
+        self.class_mapping = {}
+        self._load_trained_model()
+        
+        print(f"Sistema inicializado com {len(self.classes)} classes!")
 
-        # Classes de objetos a serem detectados
-        self.classroom_objects = [
-            'background', 'mesa', 'cadeira', 'quadro', 'mochila', 'porta',
-            'janela', 'computador', 'projetor', 'estante', 'lixeira'
-        ]
-
-        self.school_supplies = [
-            'background', 'caderno', 'lápis', 'caneta', 'borracha', 'régua',
-            'livro', 'calculadora', 'apontador', 'tesoura', 'cola'
-        ]
-
-        # Inicializar modelos
-        self.classroom_model = self._build_detection_model(len(self.classroom_objects))
-        self.supplies_model = self._build_detection_model(len(self.school_supplies))
-
-        # Inicializar sistema de áudio para feedback
-        self._setup_audio()
-
-        print("Sistema de Identificação de Objetos Educacionais inicializado com sucesso!")
-
-    def _build_detection_model(self, num_classes):
+    def _load_trained_model(self):
         """
-        Cria o modelo MobileNetSSD baseado em MobileNetV2 com TensorFlow/Keras
+        Carrega o modelo treinado e suas informações
         """
-        # Base MobileNetV2 sem camadas de classificação
-        base_model = MobileNetV2(
-            input_shape=(300, 300, 3),
-            include_top=False,
-            weights='imagenet'
-        )
-
-        # Congelar camadas da base
-        for layer in base_model.layers:
-            layer.trainable = False
-
-        # Adicionar camadas SSD para detecção de objetos
-        x = base_model.output
-        x = GlobalAveragePooling2D()(x)
-        x = Dense(512, activation='relu')(x)
-        x = Dropout(0.3)(x)
-
-        # Saídas: classificação e bounding boxes
-        class_output = Dense(num_classes, activation='softmax', name='class_output')(x)
-
-        # Para cada classe, prever 4 coordenadas (x, y, width, height)
-        bbox_output = Dense(num_classes * 4, activation='sigmoid', name='bbox_output')(x)
-        bbox_output = Reshape((num_classes, 4), name='bbox_reshape')(bbox_output)
-
-        # Modelo completo
-        model = Model(inputs=base_model.input, outputs=[class_output, bbox_output])
-
-        # Compilar o modelo
-        model.compile(
-            optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
-            loss={
-                'class_output': 'categorical_crossentropy',
-                'bbox_output': 'mean_squared_error'
-            },
-            loss_weights={'class_output': 1.0, 'bbox_output': 1.0},
-            metrics={'class_output': 'accuracy'}
-        )
-
-        return model
-
-    def _setup_audio(self):
+        model_path = "models/educational_objects/final_model.h5"
+        model_info_path = "models/educational_objects/model_info.json"
+        
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Modelo não encontrado em {model_path}")
+        
+        # Carregar modelo
+        self.model = load_model(model_path)
+        print(f"Modelo carregado de {model_path}")
+        
+        # Carregar informações das classes
+        if os.path.exists(model_info_path):
+            with open(model_info_path, 'r', encoding='utf-8') as f:
+                model_info = json.load(f)
+                self.classes = model_info['classes']
+                self.class_mapping = model_info['class_mapping']
+                print(f"Classes carregadas: {len(self.classes)}")
+    
+    def get_available_cameras(self):
         """
-        Configura o sistema de áudio para feedback ao usuário
+        Detecta todas as câmeras disponíveis no sistema
         """
-        pygame.init()
-        pygame.mixer.init()
+        available_cameras = []
+        
+        # Testar até 10 índices de câmera
+        for i in range(10):
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                ret, frame = cap.read()
+                if ret:
+                    # Obter informações da câmera
+                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    fps = cap.get(cv2.CAP_PROP_FPS)
+                    
+                    available_cameras.append({
+                        'index': i,
+                        'name': f"Camera {i}",
+                        'resolution': f"{width}x{height}",
+                        'fps': fps
+                    })
+                cap.release()
+        
+        return available_cameras
+    
+    def select_camera(self):
+        """
+        Permite ao usuário selecionar uma câmera
+        """
+        cameras = self.get_available_cameras()
+        
+        if not cameras:
+            print("Nenhuma câmera encontrada!")
+            return None
+        
+        print("\nCâmeras disponíveis:")
+        for i, camera in enumerate(cameras):
+            print(f"{i + 1}. {camera['name']} - {camera['resolution']} @ {camera['fps']:.1f} FPS")
+        
+        # Se há apenas uma câmera, selecioná-la automaticamente
+        if len(cameras) == 1:
+            selected_camera = cameras[0]
+            print(f"\nCâmera selecionada automaticamente: {selected_camera['name']}")
+            return selected_camera['index']
+        
+        while True:
+            try:
+                choice = input(f"\nEscolha uma câmera (1-{len(cameras)}) ou Enter para câmera padrão: ")
+                
+                # Se usuário pressionar Enter, usar primeira câmera
+                if choice.strip() == "":
+                    selected_camera = cameras[0]
+                    print(f"Câmera padrão selecionada: {selected_camera['name']}")
+                    return selected_camera['index']
+                
+                choice_idx = int(choice) - 1
+                
+                if 0 <= choice_idx < len(cameras):
+                    selected_camera = cameras[choice_idx]
+                    print(f"Câmera selecionada: {selected_camera['name']}")
+                    return selected_camera['index']
+                else:
+                    print("Opção inválida. Tente novamente.")
+            except (ValueError, EOFError):
+                # Em caso de EOF ou valor inválido, usar primeira câmera
+                selected_camera = cameras[0]
+                print(f"\nUsando câmera padrão: {selected_camera['name']}")
+                return selected_camera['index']
 
     def _speak(self, text):
         """
         Função para fornecer feedback de áudio ao usuário
-        Em um sistema real, poderia usar TTS como gTTS ou pyttsx3
         """
-        print(f"Feedback de áudio: {text}")
-        # Em um sistema real:
-        # import pyttsx3
-        # engine = pyttsx3.init()
-        # engine.say(text)
-        # engine.runAndWait()
+        print(f"Feedback: {text}")
 
     def preprocess_image(self, image):
         """
@@ -123,211 +144,224 @@ class ObjectDetectionSystem:
         """
         image = cv2.resize(image, self.input_size)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = preprocess_input(np.expand_dims(image, axis=0))
+        image = image.astype(np.float32) / 255.0
+        image = np.expand_dims(image, axis=0)
         return image
 
-    def detect_objects(self, image, mode="classroom"):
+    def detect_objects(self, image):
         """
-        Detecta objetos na imagem baseado no modo selecionado
+        Detecta objetos na imagem usando o modelo treinado
+        Suporta múltiplos objetos simultaneamente
         """
         processed_image = self.preprocess_image(image)
-
-        if mode == "classroom":
-            model = self.classroom_model
-            classes = self.classroom_objects
-        else:  # mode == "supplies"
-            model = self.supplies_model
-            classes = self.school_supplies
-
+        
         # Realizar previsão
-        class_probs, bbox_coords = model.predict(processed_image)
-
-        # Processar resultados
+        class_probs, bbox_coords = self.model.predict(processed_image, verbose=0)
+        
+        # Processar resultados para múltiplos objetos
         detected_objects = []
-
-        for i in range(len(classes)):
-            if i > 0 and class_probs[0][i] > self.confidence_threshold:  # Ignorar background (índice 0)
+        
+        # Processar todas as classes (excluindo background)
+        for class_idx in range(1, len(self.classes)):
+            confidence = class_probs[0][class_idx]
+            
+            if confidence > self.confidence_threshold:
                 # Extrair coordenadas da bounding box
-                y_min, x_min, y_max, x_max = bbox_coords[0][i]
-
+                y_min, x_min, y_max, x_max = bbox_coords[0]
+                
                 # Converter para coordenadas de pixel
                 x_min = int(x_min * image.shape[1])
                 y_min = int(y_min * image.shape[0])
                 x_max = int(x_max * image.shape[1])
                 y_max = int(y_max * image.shape[0])
-
+                
+                # Garantir que as coordenadas estão dentro da imagem
+                x_min = max(0, min(x_min, image.shape[1]))
+                y_min = max(0, min(y_min, image.shape[0]))
+                x_max = max(0, min(x_max, image.shape[1]))
+                y_max = max(0, min(y_max, image.shape[0]))
+                
                 detected_objects.append({
-                    'class': classes[i],
-                    'confidence': float(class_probs[0][i]),
+                    'name': self.classes[class_idx],
+                    'confidence': float(confidence),
+                    'coords': [
+                        {'x': x_min, 'y': y_min},  # top-left
+                        {'x': x_max, 'y': y_min},  # top-right
+                        {'x': x_max, 'y': y_max},  # bottom-right
+                        {'x': x_min, 'y': y_max}   # bottom-left
+                    ],
                     'bbox': (x_min, y_min, x_max, y_max)
                 })
-
+        
         return detected_objects
 
-    def provide_feedback(self, detected_objects):
+    def get_object_position(self, bbox, image_shape):
+        """
+        Determina a posição do objeto na imagem
+        """
+        x_min, y_min, x_max, y_max = bbox
+        x_center = (x_min + x_max) / 2
+        y_center = (y_min + y_max) / 2
+        
+        h, w = image_shape[:2]
+        
+        # Posição horizontal
+        if x_center < w/3:
+            horizontal = "esquerda"
+        elif x_center > 2*w/3:
+            horizontal = "direita"
+        else:
+            horizontal = "centro"
+        
+        # Posição vertical
+        if y_center < h/3:
+            vertical = "fundo"  # parte de cima da imagem
+        elif y_center > 2*h/3:
+            vertical = "inicio"  # parte de baixo da imagem
+        else:
+            vertical = "meio"
+        
+        return f"{horizontal} {vertical}"
+    
+    def provide_feedback(self, detected_objects, image_shape):
         """
         Fornece feedback sobre os objetos detectados
         """
         if not detected_objects:
             self._speak("Nenhum objeto detectado.")
-            return
-
+            return []
+        
         # Ordenar objetos por confiança
         detected_objects.sort(key=lambda x: x['confidence'], reverse=True)
+        
+        # Preparar JSON de saída
+        output_json = []
+        
+        for obj in detected_objects:
+            position = self.get_object_position(obj['bbox'], image_shape)
+            
+            output_json.append({
+                'name': obj['name'],
+                'coords': obj['coords'],
+                'position': position,
+                'confidence': obj['confidence']
+            })
+            
+            # Feedback de áudio
+            self._speak(f"{obj['name']} detectado na {position} com {int(obj['confidence'] * 100)}% de certeza")
+        
+        return output_json
 
-        # Feedback sobre os 3 objetos mais confiáveis
-        top_objects = detected_objects[:3]
-
-        feedback = "Objetos detectados: "
-        for i, obj in enumerate(top_objects):
-            if i > 0:
-                feedback += ", "
-            feedback += f"{obj['class']} com {int(obj['confidence'] * 100)}% de certeza"
-
-        self._speak(feedback)
-
-        # Fornecer dicas sobre posição dos objetos principais
-        main_object = top_objects[0]
-        x_center = (main_object['bbox'][0] + main_object['bbox'][2]) / 2
-        y_center = (main_object['bbox'][1] + main_object['bbox'][3]) / 2
-
-        # Determinar a localização relativa (simplificada)
-        h, w = self.input_size
-        position = ""
-
-        if x_center < w/3:
-            position += "à esquerda"
-        elif x_center > 2*w/3:
-            position += "à direita"
-        else:
-            position += "no centro"
-
-        if y_center < h/3:
-            position += " e na parte superior"
-        elif y_center > 2*h/3:
-            position += " e na parte inferior"
-        else:
-            position += " e no meio"
-
-        self._speak(f"O principal objeto ({main_object['class']}) está {position} da imagem.")
-
-    def run_camera_detection(self, mode="classroom"):
+    def run_camera_detection(self, camera_index=0):
         """
         Executa a detecção em tempo real usando a câmera
         """
-        cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(camera_index)
         if not cap.isOpened():
-            print("Erro ao abrir a câmera.")
+            print(f"Erro ao abrir a câmera {camera_index}.")
             return
-
-        print(f"Modo de detecção: {'Sala de Aula' if mode == 'classroom' else 'Materiais Escolares'}")
-        print("Pressione 'q' para sair, 'c' para capturar e analisar, 'm' para mudar o modo")
-
-        current_mode = mode
+        
+        print("Pressione 'q' para sair, 's' para silenciar/ativar áudio")
+        
+        window_name = 'Detecção de Objetos Educacionais'
+        cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
+        
+        # Variáveis para controle de feedback
         last_feedback_time = 0
-        feedback_cooldown = 3  # segundos entre feedbacks automáticos
-
+        feedback_cooldown = 2  # segundos entre feedbacks de áudio
+        audio_enabled = True
+        
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
-
-            # Mostra o modo atual na tela
-            mode_text = "Modo: Sala de Aula" if current_mode == "classroom" else "Modo: Materiais Escolares"
-            cv2.putText(frame, mode_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-
-            # Exibir instruções
-            cv2.putText(frame, "q: sair | c: capturar | m: mudar modo",
-                       (10, frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-
-            # Exibir o frame
-            cv2.imshow('Detecção de Objetos Educacionais', frame)
-
+            
             # Verificar entrada do usuário
             key = cv2.waitKey(1) & 0xFF
-
-            # Capturar e analisar frame atual
-            if key == ord('c'):
-                detected_objects = self.detect_objects(frame, current_mode)
-
-                # Desenhar bounding boxes
-                for obj in detected_objects:
-                    x_min, y_min, x_max, y_max = obj['bbox']
-                    cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
-                    label = f"{obj['class']}: {int(obj['confidence'] * 100)}%"
-                    cv2.putText(frame, label, (x_min, y_min - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
-                # Mostrar frame com detecções
-                cv2.imshow('Detecção de Objetos Educacionais', frame)
-
-                # Fornecer feedback sobre os objetos detectados
-                self.provide_feedback(detected_objects)
-                last_feedback_time = time.time()
-
-            # Alterar entre os modos
-            elif key == ord('m'):
-                current_mode = "supplies" if current_mode == "classroom" else "classroom"
-                mode_name = "Materiais Escolares" if current_mode == "supplies" else "Sala de Aula"
-                self._speak(f"Modo alterado para {mode_name}")
-
-            # Sair do loop
-            elif key == ord('q'):
-                break
-
-            # Feedback automático a cada 'feedback_cooldown' segundos
+            
+            # Detectar objetos em tempo real (todo frame)
+            detected_objects = self.detect_objects(frame)
+            
+            # Desenhar bounding boxes no frame
+            display_frame = frame.copy()
+            for obj in detected_objects:
+                x_min, y_min, x_max, y_max = obj['bbox']
+                # Usar cores diferentes para objetos diferentes
+                color = (0, 255, 0)  # Verde padrão
+                if 'book' in obj['name'].lower():
+                    color = (255, 0, 0)  # Azul para livros
+                elif 'pen' in obj['name'].lower():
+                    color = (0, 0, 255)  # Vermelho para canetas
+                
+                cv2.rectangle(display_frame, (x_min, y_min), (x_max, y_max), color, 2)
+                label = f"{obj['name']}: {int(obj['confidence'] * 100)}%"
+                cv2.putText(display_frame, label, (x_min, y_min - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            
+            # Fornecer feedback de áudio periodicamente
             current_time = time.time()
-            if current_time - last_feedback_time > feedback_cooldown:
-                detected_objects = self.detect_objects(frame, current_mode)
-                # Apenas com feedback de áudio, sem desenhar na tela
-                if detected_objects:
-                    self.provide_feedback(detected_objects)
-                    last_feedback_time = current_time
-
+            if detected_objects and audio_enabled and (current_time - last_feedback_time > feedback_cooldown):
+                detection_json = self.provide_feedback(detected_objects, frame.shape)
+                last_feedback_time = current_time
+                
+                # Imprimir JSON apenas quando há feedback
+                if detection_json:
+                    print("\n=== OBJETOS DETECTADOS (JSON) ===")
+                    print(json.dumps(detection_json, indent=2, ensure_ascii=False))
+                    print("=" * 35)
+            
+            # Controlar áudio
+            if key == ord('s'):
+                audio_enabled = not audio_enabled
+                status = "ativado" if audio_enabled else "silenciado"
+                print(f"Áudio {status}")
+            
+            # Exibir instruções
+            audio_status = "ON" if audio_enabled else "OFF"
+            instructions = f"q: sair | s: audio ({audio_status}) | Objetos: {len(detected_objects)}"
+            cv2.putText(display_frame, instructions,
+                       (10, display_frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            
+            # Exibir o frame
+            cv2.imshow(window_name, display_frame)
+            
+            # Sair do loop
+            if key == ord('q'):
+                break
+        
         # Liberar recursos
         cap.release()
         cv2.destroyAllWindows()
 
-# Script para treinar o modelo (pseudocódigo - necessita dados reais)
-def train_model(model, dataset_path, classes, epochs=10):
-    """
-    Treina o modelo com um conjunto de dados específico
-    (Pseudocódigo - em um cenário real, você precisaria implementar o pipeline de treinamento completo)
-    """
-    # Aqui você implementaria:
-    # 1. Carregamento e processamento do dataset
-    # 2. Data augmentation
-    # 3. Treinamento do modelo
-    # 4. Validação e avaliação
-    print(f"Treinando modelo para {len(classes)} classes...")
-    # model.fit(...) - Treinamento real aqui
-    print("Treinamento concluído!")
-    return model
 
-# Função principal
 def main():
-    # Criar o sistema de detecção
-    detection_system = ObjectDetectionSystem()
-
-    # Em um cenário real, você treinaria os modelos com datasets específicos
-    # classroom_dataset_path = "path/to/classroom/dataset"
-    # supplies_dataset_path = "path/to/supplies/dataset"
-    # detection_system.classroom_model = train_model(detection_system.classroom_model,
-    #                                               classroom_dataset_path,
-    #                                               detection_system.classroom_objects)
-    # detection_system.supplies_model = train_model(detection_system.supplies_model,
-    #                                              supplies_dataset_path,
-    #                                              detection_system.school_supplies)
-
-    # Iniciar o sistema com a câmera
-    print("\nIniciando sistema de detecção de objetos educacionais...")
-    print("Este sistema auxilia pessoas com deficiência visual a identificar:")
-    print("1. Objetos em sala de aula (mesas, cadeiras, quadro, etc.)")
-    print("2. Materiais escolares (cadernos, lápis, canetas, etc.)")
-    print("\nO sistema fornecerá feedback por áudio sobre os objetos detectados.")
-
-    # Iniciar com o modo "sala de aula" por padrão
-    detection_system.run_camera_detection(mode="classroom")
+    try:
+        # Criar o sistema de detecção
+        detection_system = ObjectDetectionSystem()
+        
+        # Selecionar câmera
+        camera_index = detection_system.select_camera()
+        if camera_index is None:
+            return
+        
+        # Iniciar o sistema com a câmera selecionada
+        print("\n" + "="*50)
+        print("SISTEMA DE DETECÇÃO DE OBJETOS EDUCACIONAIS")
+        print("="*50)
+        print("Este sistema auxilia pessoas com deficiência visual")
+        print("a identificar objetos em tempo real.")
+        print("\nO sistema fornecerá:")
+        print("• Feedback visual (caixas ao redor dos objetos)")
+        print("• Feedback de áudio sobre objetos detectados")
+        print("• JSON com coordenadas e posições dos objetos")
+        print("="*50)
+        
+        # Iniciar detecção
+        detection_system.run_camera_detection(camera_index)
+        
+    except Exception as e:
+        print(f"Erro: {e}")
+        print("Verifique se o modelo foi treinado corretamente.")
 
 if __name__ == "__main__":
     main()
