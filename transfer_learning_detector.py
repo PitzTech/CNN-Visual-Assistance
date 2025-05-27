@@ -20,7 +20,7 @@ class TransferLearningDetector:
 
     def __init__(self, model_path="models/transfer_learning/transfer_learning_model.h5"):
         # Configurações
-        self.confidence_threshold = 0.6
+        self.confidence_threshold = 0.3
         self.input_size = (300, 300)
         
         # Carregar modelo e informações
@@ -52,14 +52,16 @@ class TransferLearningDetector:
             print(f"Modelo de transfer learning carregado de {model_path}")
             
             # Carregar informações das classes
-            info_path = model_path.replace("transfer_learning_model.h5", "transfer_model_info.json")
+            info_path = model_path.replace("transfer_learning_model.h5", "combined_class_info.json")
             if os.path.exists(info_path):
                 with open(info_path, 'r', encoding='utf-8') as f:
                     model_info = json.load(f)
-                    self.combined_classes = model_info.get('coco_classes', []) + model_info.get('educational_classes', [])
+                    self.combined_classes = model_info.get('combined_classes', [])
                     self.coco_classes = model_info.get('coco_classes', [])
                     self.educational_classes = model_info.get('educational_classes', [])
                     print(f"Classes carregadas: {len(self.combined_classes)}")
+                    print(f"COCO classes: {len(self.coco_classes)}")
+                    print(f"Educational classes: {len(self.educational_classes)}")
             else:
                 print("Informações das classes não encontradas, usando classes padrão")
                 self._setup_default_classes()
@@ -200,14 +202,29 @@ class TransferLearningDetector:
         
         detected_objects = []
         
-        # Encontrar a classe com maior probabilidade (excluindo background se existir)
-        start_idx = 1 if len(self.combined_classes) > 0 and 'background' in self.combined_classes[0] else 0
+        # Ensure we have valid class probabilities
+        if len(class_probs.shape) == 1:
+            class_probs = np.expand_dims(class_probs, 0)
+        
+        # Find class with highest probability (skip background if exists)
+        start_idx = 1 if len(self.combined_classes) > 0 and 'background' in str(self.combined_classes[0]).lower() else 0
+        
+        if class_probs.shape[1] <= start_idx:
+            print(f"Warning: No valid classes to detect. Shape: {class_probs.shape}")
+            return detected_objects
+            
         class_idx = np.argmax(class_probs[0][start_idx:]) + start_idx
+        
+        # Ensure class_idx is within bounds
+        if class_idx >= len(self.combined_classes):
+            print(f"Warning: class_idx {class_idx} >= len(combined_classes) {len(self.combined_classes)}")
+            return detected_objects
+            
         max_confidence = class_probs[0][class_idx]
         
         if max_confidence > self.confidence_threshold:
             # Extrair coordenadas da bounding box
-            if len(bbox_coords.shape) > 1:
+            if hasattr(bbox_coords, 'shape') and len(bbox_coords.shape) > 1:
                 y_min, x_min, y_max, x_max = bbox_coords[0]
             else:
                 y_min, x_min, y_max, x_max = 0.2, 0.2, 0.8, 0.8  # Default bbox
@@ -226,6 +243,8 @@ class TransferLearningDetector:
             
             # Determinar se é objeto COCO ou educacional
             object_type = "COCO" if class_idx < len(self.coco_classes) else "Educational"
+            
+            # Get class name safely
             class_name = self.combined_classes[class_idx] if class_idx < len(self.combined_classes) else f"Class_{class_idx}"
             
             detected_objects.append({

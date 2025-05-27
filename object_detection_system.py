@@ -28,7 +28,7 @@ class ObjectDetectionSystem:
 
     def __init__(self):
         # Configurações
-        self.confidence_threshold = 0.6
+        self.confidence_threshold = 0.3
         self.input_size = (300, 300)
         
         # Carregar modelo treinado e informações
@@ -165,13 +165,44 @@ class ObjectDetectionSystem:
         # Processar resultados
         detected_objects = []
         
-        # Encontrar a classe com maior probabilidade (excluindo background)
-        class_idx = np.argmax(class_probs[0][1:]) + 1  # +1 porque excluímos background
-        max_confidence = class_probs[0][class_idx]
+        # Handle different model output formats
+        if isinstance(class_probs, list):
+            # If model returns list, take the first element
+            class_probs = class_probs[0] if len(class_probs) > 0 else class_probs
+        
+        # Ensure we have valid class probabilities
+        if len(class_probs.shape) == 1:
+            class_probs = np.expand_dims(class_probs, 0)
+        
+        # Find class with highest probability (skip background if exists)
+        start_idx = 1 if len(self.classes) > 0 and self.classes[0] in ['-', 'background'] else 0
+        
+        # Limit search to only the classes we have in our list
+        max_class_idx = min(class_probs.shape[1], len(self.classes))
+        
+        if max_class_idx > start_idx:
+            # Only search within our available classes
+            valid_probs = class_probs[0][start_idx:max_class_idx]
+            if len(valid_probs) > 0:
+                class_idx = np.argmax(valid_probs) + start_idx
+                max_confidence = class_probs[0][class_idx]
+            else:
+                return detected_objects
+        else:
+            return detected_objects  # No valid classes to detect
+        
+        # Ensure class_idx is within bounds (double check)
+        if class_idx >= len(self.classes):
+            print(f"Warning: class_idx {class_idx} >= len(classes) {len(self.classes)}")
+            return detected_objects
         
         if max_confidence > self.confidence_threshold:
-            # Extrair coordenadas da bounding box (apenas uma por imagem)
-            y_min, x_min, y_max, x_max = bbox_coords[0]
+            # Handle bounding box coordinates
+            if hasattr(bbox_coords, 'shape') and len(bbox_coords.shape) > 0:
+                y_min, x_min, y_max, x_max = bbox_coords[0]
+            else:
+                # Default bounding box if coordinates are invalid
+                y_min, x_min, y_max, x_max = 0.2, 0.2, 0.8, 0.8
             
             # Converter para coordenadas de pixel
             x_min = int(x_min * image.shape[1])
@@ -185,8 +216,10 @@ class ObjectDetectionSystem:
             x_max = max(0, min(x_max, image.shape[1]))
             y_max = max(0, min(y_max, image.shape[0]))
             
+            class_name = self.classes[class_idx] if class_idx < len(self.classes) else f"Class_{class_idx}"
+            
             detected_objects.append({
-                'name': self.classes[class_idx],
+                'name': class_name,
                 'confidence': float(max_confidence),
                 'coords': [
                     {'x': x_min, 'y': y_min},  # top-left

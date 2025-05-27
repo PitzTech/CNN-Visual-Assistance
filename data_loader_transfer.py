@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 from pathlib import Path
 import tensorflow as tf
-from roboflow import Roboflow
+# from roboflow import Roboflow  # Optional - only needed for Roboflow datasets
 from tqdm import tqdm
 import random
 
@@ -109,17 +109,9 @@ class TransferLearningDataLoader:
             print("Roboflow credentials not provided, using local data")
             return self._load_local_educational_data()
 
-        try:
-            rf = Roboflow(api_key=api_key)
-            project_obj = rf.workspace(workspace).project(project)
-            dataset = project_obj.version(version).download("coco")
-
-            print(f"Downloaded educational dataset to {dataset.location}")
-            return dataset.location
-
-        except Exception as e:
-            print(f"Roboflow download failed: {e}")
-            return self._load_local_educational_data()
+        print("Roboflow integration disabled. Using local educational dataset instead.")
+        print("To enable Roboflow: pip install roboflow and uncomment import")
+        return self._load_local_educational_data()
 
     def _load_local_educational_data(self):
         """Load local educational dataset if available"""

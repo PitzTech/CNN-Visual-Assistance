@@ -23,7 +23,7 @@ import psutil
 import gc
 import requests
 import zipfile
-from roboflow import Roboflow
+# from roboflow import Roboflow  # Optional - only needed for Roboflow datasets
 
 # Configure GPU
 def configure_gpu():
@@ -140,7 +140,9 @@ class TransferLearningTrainer:
             
         print("Created model with pre-trained backbone")
         print(f"Total parameters: {self.model.count_params():,}")
-        print(f"Trainable parameters: {sum([tf.keras.utils.count_params(w) for w in self.model.trainable_weights]):,}")
+        # Count trainable parameters manually for compatibility
+        trainable_params = sum([w.numpy().size for w in self.model.trainable_weights])
+        print(f"Trainable parameters: {trainable_params:,}")
         
     def compile_model(self, learning_rate=0.001):
         """Compile model with appropriate loss functions and metrics"""
@@ -155,12 +157,12 @@ class TransferLearningTrainer:
             optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
             loss={
                 'class_output': 'sparse_categorical_crossentropy',
-                'bbox_output': 'mse'
+                'bbox_output': 'mean_squared_error'  # Use string name instead of 'mse'
             },
             loss_weights=loss_weights,
             metrics={
                 'class_output': ['accuracy'],
-                'bbox_output': ['mae']
+                'bbox_output': ['mean_absolute_error']  # Use string name instead of 'mae'
             }
         )
         
@@ -171,14 +173,9 @@ class TransferLearningTrainer:
         Load educational datasets from Roboflow
         This is a placeholder - replace with your actual Roboflow credentials
         """
-        try:
-            rf = Roboflow(api_key="your-api-key")
-            project = rf.workspace(workspace).project(project)
-            dataset = project.version(version).download("coco")
-            return dataset.location
-        except Exception as e:
-            print(f"Roboflow download failed: {e}")
-            return None
+        print("Roboflow integration disabled. Using local educational dataset instead.")
+        print("To enable Roboflow: pip install roboflow and uncomment import")
+        return None
             
     def prepare_transfer_learning_data(self, dataset_path="datasets/"):
         """

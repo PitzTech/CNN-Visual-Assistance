@@ -256,21 +256,9 @@
   "description": "Modelo treinado com datasets do Roboflow para identificação de objetos educacionais",
   "cleaning_info": {
     "metadata_removed": true,
-    "removed_metadata_classes": [
-      "- - v1 2022-09-02 1-50pm",
-      "- collaborate with your team on computer vision projects",
-      "- understand and search unstructured image data",
-      "- use active learning to improve your dataset over time",
-      "4 classes",
-      "object",
-      "objects",
-      "roboflow is an end-to-end computer vision platform that helps you",
-      "the dataset includes 101 images-",
-      "total 350 images",
-      "visit https-github-com-roboflow-notebooks"
-    ],
-    "original_class_count": 120,
+    "removed_metadata_classes": [],
+    "original_class_count": 109,
     "cleaned_class_count": 109,
-    "classes_removed_count": 11
+    "classes_removed_count": 0
   }
 }
