@@ -1,5 +1,8 @@
 # Sistema de Identificação de Objetos Educacionais para Inclusão Visual
 
+htop
+nvtop
+
 ## NEED TO INSTALL
 ```bash
 sudo apt-get install protobuf-compiler
@@ -10,7 +13,7 @@ sudo apt-get install protobuf-compiler
 ## to start:
 
 ```bash
-python3 -m venv env
+python3.9 -m venv env
 ```
 
 ### windows

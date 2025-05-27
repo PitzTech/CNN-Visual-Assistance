@@ -29,48 +29,78 @@ import time
 import psutil
 import gc
 
+def log_gpu_info():
+    """Log information about available GPUs"""
+    print("=== GPU Information ===")
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+        for i, gpu in enumerate(gpus):
+            print(f"GPU {i}: {gpu}")
+            try:
+                # Get GPU details if available
+                gpu_details = tf.config.experimental.get_device_details(gpu)
+                device_name = gpu_details.get('device_name', 'Unknown')
+                print(f"  Device Name: {device_name}")
+                if 'nvidia' in device_name.lower() or 'geforce' in device_name.lower() or 'rtx' in device_name.lower() or 'gtx' in device_name.lower():
+                    print(f"  Type: NVIDIA GPU")
+                else:
+                    print(f"  Type: Other GPU")
+            except:
+                print(f"  Details: Unable to retrieve")
+
+        # Configure GPU memory growth
+        try:
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            print("GPU memory growth enabled")
+        except RuntimeError as e:
+            print(f"GPU configuration error: {e}")
+    else:
+        print("No GPUs detected. Using CPU.")
+    print("=======================\n")
+
 def check_package_compatibility():
     """Check compatibility of required packages with current environment"""
     compatibility_issues = []
-    
+
     try:
         import tensorflow as tf
         tf_version = tf.__version__
         print(f"✅ TensorFlow version: {tf_version}")
-        
+
         # Check TensorFlow GPU support
         if tf.config.list_physical_devices('GPU'):
             print(f"✅ GPU support available")
         else:
             print(f"⚠️ No GPU detected - using CPU")
-            
+
     except ImportError:
         compatibility_issues.append("TensorFlow not installed")
-    
+
     try:
         import numpy as np
         np_version = np.__version__
         print(f"✅ NumPy version: {np_version}")
-        
+
         # Check for NumPy compatibility
         if np.version.version >= "1.19.5":
             print(f"✅ NumPy version compatible")
     except ImportError:
         compatibility_issues.append("NumPy not installed")
-    
+
     try:
         import cv2
         cv_version = cv2.__version__
         print(f"✅ OpenCV version: {cv_version}")
     except ImportError:
         compatibility_issues.append("OpenCV not installed")
-        
+
     try:
         import pygame
         print(f"✅ pygame available")
     except ImportError:
         compatibility_issues.append("pygame not installed")
-    
+
     if compatibility_issues:
         print(f"❌ Compatibility issues found: {', '.join(compatibility_issues)}")
         print(f"Please install missing packages using: pip install -r requirements.txt")
@@ -92,38 +122,38 @@ def configure_gpu_for_rtx_4080():
             # Enable memory growth for each GPU to use system RAM as backup
             for gpu in gpus:
                 tf.config.experimental.set_memory_growth(gpu, True)
-            
+
             # Configure TensorFlow to allow system RAM usage for large models
             # This must be done BEFORE any operations create GPU contexts
             os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
             os.environ['TF_GPU_THREAD_MODE'] = 'gpu_private'
-            
+
             # Enable mixed precision for RTX 4080 Super (Tensor Cores)
             # Using compatible method with TensorFlow 2.x
             policy = tf.keras.mixed_precision.Policy('mixed_float16')
             tf.keras.mixed_precision.set_global_policy(policy)
-            
+
             # Configure for multi-threading optimization to handle RAM/GPU transfers
             tf.config.threading.set_inter_op_parallelism_threads(0)  # Use all available cores
             tf.config.threading.set_intra_op_parallelism_threads(0)  # Use all available cores
-            
+
             # Enable XLA compilation for better performance with mixed GPU/RAM usage
             tf.config.optimizer.set_jit(True)
-            
+
             # Get GPU info - using compatible method
             try:
                 # Alternative approach to get GPU name without deprecated method
                 gpu_name = gpus[0].name.split('/')[-1] if gpus else "Unknown GPU"
             except:
                 gpu_name = "RTX 4080 Super"
-            
+
             print(f"🚀 GPU(s) configured for training: {len(gpus)}")
             print(f"📊 GPU: {gpu_name}")
             print(f"💾 Memory growth enabled (GPU + System RAM backup)")
             print(f"⚡ Mixed precision enabled for Tensor Cores")
             print(f"🔄 Multi-threading optimized for GPU/RAM transfers")
             print(f"🚀 XLA compilation enabled for performance")
-            
+
             return True
         except RuntimeError as e:
             print(f"⚠️ GPU configuration error: {e}")
@@ -160,7 +190,7 @@ def get_memory_usage():
         'gpu_temperature': None,
         'gpu_available': False
     }
-    
+
     try:
         if gpu_available:
             # Get detailed GPU information using nvidia-ml-py
@@ -168,29 +198,29 @@ def get_memory_usage():
                 import pynvml
                 pynvml.nvmlInit()
                 handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-                
+
                 # Memory information
                 mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
                 gpu_info['gpu_memory_used_mb'] = mem_info.used / (1024**2)
                 gpu_info['gpu_memory_total_mb'] = mem_info.total / (1024**2)
                 gpu_info['gpu_memory_free_mb'] = mem_info.free / (1024**2)
-                
+
                 # GPU utilization
                 util = pynvml.nvmlDeviceGetUtilizationRates(handle)
                 gpu_info['gpu_utilization'] = util.gpu
-                
+
                 # GPU name
                 gpu_info['gpu_name'] = pynvml.nvmlDeviceGetName(handle).decode('utf-8')
-                
+
                 # GPU temperature
                 try:
                     temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
                     gpu_info['gpu_temperature'] = temp
                 except:
                     gpu_info['gpu_temperature'] = None
-                
+
                 gpu_info['gpu_available'] = True
-                
+
             except Exception as e:
                 # Fallback: try TensorFlow method
                 try:
@@ -202,10 +232,10 @@ def get_memory_usage():
                     pass
     except:
         pass
-    
+
     # System RAM information
     virtual_mem = psutil.virtual_memory()
-    
+
     return {
         'ram_used_mb': memory_info.rss / (1024**2),
         'ram_available_mb': virtual_mem.available / (1024**2),
@@ -225,7 +255,7 @@ def optimize_memory():
 
 class ProgressTracker:
     """Enhanced class to track training progress with detailed time estimation and GPU monitoring"""
-    
+
     def __init__(self, total_epochs, steps_per_epoch):
         self.total_epochs = total_epochs
         self.steps_per_epoch = steps_per_epoch
@@ -233,7 +263,7 @@ class ProgressTracker:
         self.epoch_times = []
         self.current_epoch = 0
         self.epoch_start_time = None
-        
+
     def start_training(self):
         """Mark the start of training"""
         self.start_time = time.time()
@@ -244,42 +274,42 @@ class ProgressTracker:
         print(f"🔄 Steps per Epoch: {self.steps_per_epoch}")
         print(f"⚡ GPU Available: {gpu_available}")
         print(f"{'='*80}\n")
-        
+
     def on_epoch_begin(self, epoch):
         """Mark the start of an epoch"""
         self.epoch_start_time = time.time()
         self.current_epoch = epoch
-        
+
     def update_epoch(self, epoch, logs=None):
         """Update progress after each epoch with comprehensive system information"""
         current_time = time.time()
-        
+
         if self.start_time and self.epoch_start_time:
             # Calculate times
             total_elapsed = current_time - self.start_time
             epoch_time = current_time - self.epoch_start_time
             self.epoch_times.append(epoch_time)
-            
+
             # Calculate averages and estimates
             avg_epoch_time = total_elapsed / (epoch + 1)
             recent_avg = np.mean(self.epoch_times[-5:]) if len(self.epoch_times) >= 5 else avg_epoch_time
             remaining_epochs = self.total_epochs - (epoch + 1)
             estimated_remaining = recent_avg * remaining_epochs
-            
+
             # Get comprehensive memory and system stats
             memory_stats = get_memory_usage()
-            
+
             # Progress calculations
             progress = (epoch + 1) / self.total_epochs
             bar_length = 60
             filled_length = int(bar_length * progress)
             bar = '█' * filled_length + '░' * (bar_length - filled_length)
-            
+
             # Display comprehensive progress information
             print(f"\n{'='*120}")
             print(f"🚀 EPOCH {epoch + 1}/{self.total_epochs} COMPLETED - PROGRESS REPORT")
             print(f"{'='*120}")
-            
+
             # ============ TIME INFORMATION ============
             print(f"\n⏰ TIME ANALYSIS:")
             print(f"   ⏱️  This Epoch Duration: {self._format_time(epoch_time)}")
@@ -288,18 +318,18 @@ class ProgressTracker:
             print(f"   ⚡ Recent Average (last 5): {self._format_time(recent_avg)}")
             print(f"   ⏳ Time Remaining: {self._format_time(estimated_remaining)}")
             print(f"   🏁 Estimated Total Duration: {self._format_time(total_elapsed + estimated_remaining)}")
-            
+
             # ETA calculation
             if remaining_epochs > 0:
                 eta_time = current_time + estimated_remaining
                 eta_formatted = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(eta_time))
                 print(f"   🕒 Estimated Completion Time: {eta_formatted}")
-            
+
             # ============ PROGRESS BAR ============
             print(f"\n📈 TRAINING PROGRESS:")
             print(f"   [{bar}] {progress*100:.1f}% ({epoch + 1}/{self.total_epochs} epochs)")
             print(f"   Epochs Remaining: {remaining_epochs}")
-            
+
             # ============ GPU INFORMATION ============
             print(f"\n🎮 GPU STATUS:")
             if memory_stats['gpu_available']:
@@ -319,7 +349,7 @@ class ProgressTracker:
                     print(f"   🌡️  GPU Temperature: {memory_stats['gpu_temperature']}°C")
             else:
                 print(f"   ❌ GPU in Use: NO (Using CPU)")
-            
+
             # ============ SYSTEM RAM INFORMATION ============
             print(f"\n💻 SYSTEM RAM STATUS:")
             ram_total = memory_stats['ram_total_mb']
@@ -330,17 +360,33 @@ class ProgressTracker:
             print(f"   🔥 Used RAM: {ram_used:.0f} MB (Process: {ram_used:.0f} MB)")
             print(f"   🆓 Available RAM: {ram_available:.0f} MB ({ram_available/1024:.1f} GB)")
             print(f"   📊 RAM Usage: {ram_percent:.1f}%")
-            
+
             # ============ TRAINING METRICS ============
             if logs:
-                print(f"\n📊 TRAINING METRICS:")
-                print(f"   📉 Training Loss: {logs.get('loss', 'N/A'):.4f}")
-                print(f"   📈 Validation Loss: {logs.get('val_loss', 'N/A'):.4f}")
+                print(f"\n📊 TRAINING METRICS (Epoch {epoch + 1}):")
+                
+                # Loss metrics
+                total_loss = logs.get('loss', 0)
+                val_loss = logs.get('val_loss', 0)
+                class_loss = logs.get('class_output_loss', 0)
+                bbox_loss = logs.get('bbox_output_loss', 0)
+                val_class_loss = logs.get('val_class_output_loss', 0)
+                val_bbox_loss = logs.get('val_bbox_output_loss', 0)
+                
+                print(f"   📉 Total Loss: Train={total_loss:.4f}, Val={val_loss:.4f}")
+                print(f"   🎯 Classification Loss: Train={class_loss:.4f}, Val={val_class_loss:.4f}")
+                print(f"   📦 BBox Regression Loss: Train={bbox_loss:.4f}, Val={val_bbox_loss:.4f}")
+                
+                # Accuracy metrics
                 if 'class_output_accuracy' in logs:
-                    print(f"   🎯 Training Accuracy: {logs.get('class_output_accuracy', 'N/A'):.4f}")
-                    print(f"   ✅ Validation Accuracy: {logs.get('val_class_output_accuracy', 'N/A'):.4f}")
-                if 'lr' in logs:
-                    print(f"   📈 Learning Rate: {logs.get('lr', 'N/A'):.2e}")
+                    train_acc = logs.get('class_output_accuracy', 0)
+                    val_acc = logs.get('val_class_output_accuracy', 0)
+                    print(f"   ✅ Classification Accuracy: Train={train_acc:.4f} ({train_acc*100:.1f}%), Val={val_acc:.4f} ({val_acc*100:.1f}%)")
+                
+                # Learning rate
+                lr = logs.get('lr', logs.get('learning_rate', 0))
+                if lr > 0:
+                    print(f"   📈 Learning Rate: {lr:.2e}")
                 
                 # Loss improvement analysis
                 if epoch > 0 and 'val_loss' in logs:
@@ -349,15 +395,58 @@ class ProgressTracker:
                         if hasattr(self, 'best_val_loss'):
                             if current_val_loss < self.best_val_loss:
                                 improvement = self.best_val_loss - current_val_loss
-                                print(f"   🎉 New Best Validation Loss! Improved by {improvement:.4f}")
+                                improvement_percent = (improvement / self.best_val_loss) * 100
+                                print(f"   🎉 NEW BEST! Val Loss improved by {improvement:.4f} ({improvement_percent:.1f}%)")
                                 self.best_val_loss = current_val_loss
+                            else:
+                                degradation = current_val_loss - self.best_val_loss
+                                print(f"   ⚠️  Val Loss +{degradation:.4f} from best ({self.best_val_loss:.4f})")
                         else:
                             self.best_val_loss = current_val_loss
+                            print(f"   📌 First validation loss: {current_val_loss:.4f}")
                     except:
                         pass
+                
+                # Performance indicators
+                if epoch > 0:
+                    print(f"   📈 Training Progress:")
+                    if 'val_loss' in logs and hasattr(self, 'prev_val_loss'):
+                        loss_trend = "📈 Improving" if val_loss < self.prev_val_loss else "📉 Degrading"
+                        print(f"      Loss Trend: {loss_trend}")
+                    if 'val_class_output_accuracy' in logs and hasattr(self, 'prev_val_acc'):
+                        acc_trend = "📈 Improving" if logs['val_class_output_accuracy'] > self.prev_val_acc else "📉 Degrading"
+                        print(f"      Accuracy Trend: {acc_trend}")
+                
+                # Store for next comparison
+                self.prev_val_loss = val_loss
+                self.prev_val_acc = logs.get('val_class_output_accuracy', 0)
+
+            # ============ EPOCH SUMMARY ============
+            print(f"\n🏁 EPOCH {epoch + 1} SUMMARY:")
+            if logs:
+                print(f"   ⏱️  Duration: {self._format_time(epoch_time)}")
+                print(f"   📊 Best Metrics This Epoch:")
+                print(f"      • Total Loss: {logs.get('loss', 0):.4f} → {logs.get('val_loss', 0):.4f}")
+                if 'class_output_accuracy' in logs:
+                    print(f"      • Accuracy: {logs.get('class_output_accuracy', 0)*100:.1f}% → {logs.get('val_class_output_accuracy', 0)*100:.1f}%")
+                
+                # Performance assessment
+                val_loss = logs.get('val_loss', float('inf'))
+                val_acc = logs.get('val_class_output_accuracy', 0)
+                
+                if val_loss < 1.0 and val_acc > 0.8:
+                    status = "🟢 EXCELLENT"
+                elif val_loss < 2.0 and val_acc > 0.6:
+                    status = "🟡 GOOD"
+                elif val_loss < 3.0 and val_acc > 0.4:
+                    status = "🟠 FAIR"
+                else:
+                    status = "🔴 NEEDS IMPROVEMENT"
+                
+                print(f"   📈 Performance Status: {status}")
             
             print(f"{'='*120}\n")
-            
+
     def _format_time(self, seconds):
         """Format time in human readable format"""
         hours, remainder = divmod(int(seconds), 3600)
@@ -384,7 +473,8 @@ class ModelTrainer:
             batch_size: Tamanho do lote para treinamento (auto-detectado se None)
         """
         self.input_size = input_size
-        
+        self.input_shape = (input_size[0], input_size[1], 3)  # Add input_shape for compatibility
+
         # Auto-detect optimal batch size for RTX 4080 Super
         if batch_size is None:
             if gpu_available:
@@ -395,10 +485,10 @@ class ModelTrainer:
                 self.batch_size = 8  # Smaller batch for CPU
         else:
             self.batch_size = batch_size
-            
+
         self.model = None
         self.progress_tracker = None
-        
+
         print(f"🔧 ModelTrainer initialized:")
         print(f"   📐 Input size: {input_size}")
         print(f"   📦 Batch size: {self.batch_size}")
@@ -414,6 +504,8 @@ class ModelTrainer:
         Returns:
             Modelo compilado
         """
+        # Store num_classes as instance attribute
+        self.num_classes = num_classes
         # Modelo base: MobileNetV2
         base_model = MobileNetV2(
             input_shape=(self.input_size[0], self.input_size[1], 3),
@@ -448,9 +540,8 @@ class ModelTrainer:
         # Cabeça de classificação
         class_output = Dense(num_classes, activation='softmax', name='class_output')(x)
 
-        # Cabeça de regressão para bounding boxes (4 valores por classe: x, y, width, height)
-        bbox_output = Dense(num_classes * 4, activation='sigmoid', name='bbox_output')(x)
-        bbox_output = Reshape((num_classes, 4), name='bbox_reshape')(bbox_output)
+        # Cabeça de regressão para bounding boxes (4 valores: x, y, width, height)
+        bbox_output = Dense(4, activation='sigmoid', name='bbox_output')(x)
 
         # Criar modelo completo
         self.model = Model(inputs=base_model.input, outputs=[class_output, bbox_output])
@@ -460,9 +551,9 @@ class ModelTrainer:
             optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),
             loss={
                 'class_output': 'categorical_crossentropy',
-                'bbox_reshape': 'huber'  # Huber loss é mais robusto para coordenadas
+                'bbox_output': 'huber'  # Huber loss é mais robusto para coordenadas
             },
-            loss_weights={'class_output': 1.0, 'bbox_reshape': 1.0},
+            loss_weights={'class_output': 1.0, 'bbox_output': 1.0},
             metrics={'class_output': 'accuracy'}
         )
 
@@ -482,11 +573,11 @@ class ModelTrainer:
             X_train, X_val, y_train_class, y_train_bbox, y_val_class, y_val_bbox
         """
         print(f"📂 Loading annotations from {annotations_file}...")
-        
+
         # Carregar anotações
         with open(annotations_file, 'r') as f:
             annotations = json.load(f)
-            
+
         print(f"📈 Found {len(annotations.get('images', []))} images and {len(annotations.get('annotations', []))} annotations")
 
         images = []
@@ -537,9 +628,8 @@ class ModelTrainer:
             x_max = max(0, min(1, x_max))
             y_max = max(0, min(1, y_max))
 
-            # Criar vetor de bbox para todas as classes (a maioria será zero)
-            bbox_vector = np.zeros((len(annotations['categories']) + 1, 4))
-            bbox_vector[category_id] = [y_min, x_min, y_max, x_max]  # Formato TensorFlow [y1, x1, y2, x2]
+            # Criar vetor de bbox (apenas 4 coordenadas)
+            bbox_vector = np.array([y_min, x_min, y_max, x_max], dtype=np.float32)
 
             images.append(image)
             class_labels.append(class_vector)
@@ -606,9 +696,9 @@ class ModelTrainer:
                     all_val_bbox_labels.extend(bbox_labels)
 
         # Converter para numpy arrays
-        X_train = np.array(all_train_images)
-        y_train_class = np.array(all_train_class_labels)
-        y_train_bbox = np.array(all_train_bbox_labels)
+        X_train = np.array(all_train_images, dtype=np.float32)
+        y_train_class = np.array(all_train_class_labels, dtype=np.float32)
+        y_train_bbox = np.array(all_train_bbox_labels, dtype=np.float32)
 
         # Se não há dados de validação separados, criar split
         if len(all_val_images) == 0:
@@ -617,9 +707,9 @@ class ModelTrainer:
                 X_train, y_train_class, y_train_bbox, test_size=0.2, random_state=42
             )
         else:
-            X_val = np.array(all_val_images)
-            y_val_class = np.array(all_val_class_labels)
-            y_val_bbox = np.array(all_val_bbox_labels)
+            X_val = np.array(all_val_images, dtype=np.float32)
+            y_val_class = np.array(all_val_class_labels, dtype=np.float32)
+            y_val_bbox = np.array(all_val_bbox_labels, dtype=np.float32)
 
         print(f"\nDataset preparado:")
         print(f"  Treino: {X_train.shape[0]} amostras")
@@ -687,9 +777,9 @@ class ModelTrainer:
 
                 if len(image_annotations) == 0:
                     # Imagem sem anotações (background)
-                    class_vector = np.zeros(num_classes)
+                    class_vector = np.zeros(num_classes, dtype=np.float32)
                     class_vector[0] = 1.0  # background
-                    bbox_vector = np.zeros((num_classes, 4))
+                    bbox_vector = np.zeros(4, dtype=np.float32)  # [0, 0, 0, 0] for background
                 else:
                     # Usar a primeira anotação (para simplificar, poderia ser melhorado)
                     annotation = image_annotations[0]
@@ -699,7 +789,7 @@ class ModelTrainer:
                     new_category_id = original_to_new_id.get(original_category_id, 0)
 
                     # One-hot encoding para classes
-                    class_vector = np.zeros(num_classes)
+                    class_vector = np.zeros(num_classes, dtype=np.float32)
                     class_vector[new_category_id] = 1.0
 
                     # Normalizar bounding box
@@ -719,9 +809,8 @@ class ModelTrainer:
                     x_max = max(0, min(1, x_max))
                     y_max = max(0, min(1, y_max))
 
-                    # Criar vetor de bbox para todas as classes
-                    bbox_vector = np.zeros((num_classes, 4))
-                    bbox_vector[new_category_id] = [y_min, x_min, y_max, x_max]
+                    # Criar vetor de bbox (apenas 4 coordenadas)
+                    bbox_vector = np.array([y_min, x_min, y_max, x_max], dtype=np.float32)
 
                 images.append(image)
                 class_labels.append(class_vector)
@@ -779,7 +868,11 @@ class ModelTrainer:
                     for i in range(len(batch_X)):
                         batch_X[i] = datagen.random_transform(batch_X[i])
 
-                yield batch_X, [batch_y_class, batch_y_bbox]
+                # bbox data is already in correct format (batch_size, 4)
+                yield batch_X.astype(np.float32), {
+                    'class_output': batch_y_class.astype(np.float32),
+                    'bbox_output': batch_y_bbox.astype(np.float32)
+                }
 
     def train(self, annotations_file, images_dir, classes, epochs=50, save_path='models'):
         """
@@ -812,27 +905,44 @@ class ModelTrainer:
         # Initialize progress tracker
         steps_per_epoch = len(X_train) // self.batch_size
         self.progress_tracker = ProgressTracker(epochs, steps_per_epoch)
-        
+
         # Custom callback for enhanced progress tracking
         class ProgressCallback(tf.keras.callbacks.Callback):
             def __init__(self, tracker):
                 super().__init__()
                 self.tracker = tracker
-                
+
             def on_train_begin(self, logs=None):
                 self.tracker.start_training()
-                
+
             def on_epoch_begin(self, epoch, logs=None):
                 self.tracker.on_epoch_begin(epoch)
+                print(f"\n🚀 Starting Epoch {epoch + 1}/{self.tracker.total_epochs}")
                 
+            def on_train_batch_end(self, batch, logs=None):
+                if batch % 20 == 0 and logs:  # Show progress every 20 batches
+                    current_loss = logs.get('loss', 0)
+                    current_acc = logs.get('class_output_accuracy', 0)
+                    bbox_loss = logs.get('bbox_output_loss', 0)
+                    class_loss = logs.get('class_output_loss', 0)
+                    lr = logs.get('lr', logs.get('learning_rate', 0))
+                    
+                    # Calculate progress
+                    progress = (batch + 1) / self.tracker.steps_per_epoch
+                    progress_bar = "█" * int(progress * 20) + "░" * (20 - int(progress * 20))
+                    
+                    print(f"  [{progress_bar}] Step {batch + 1}/{self.tracker.steps_per_epoch} "
+                          f"| Loss: {current_loss:.4f} (cls: {class_loss:.4f}, bbox: {bbox_loss:.4f}) "
+                          f"| Acc: {current_acc:.4f} | LR: {lr:.2e}")
+
             def on_epoch_end(self, epoch, logs=None):
                 self.tracker.update_epoch(epoch, logs)
                 # Optimize memory after each epoch
                 optimize_memory()
-        
+
         # Configurar callbacks
         progress_callback = ProgressCallback(self.progress_tracker)
-        
+
         checkpoint = ModelCheckpoint(
             os.path.join(save_path, 'model_checkpoint.h5'),
             monitor='val_loss',
@@ -1471,19 +1581,49 @@ def train_with_roboflow_datasets(datasets_base_dir="datasets", dataset_filters=N
     # Initialize progress tracker
     steps_per_epoch = len(X_train) // trainer.batch_size
     progress_tracker = ProgressTracker(epochs, steps_per_epoch)
-    
+
     # Custom callback for progress tracking
     class ProgressCallback(tf.keras.callbacks.Callback):
         def __init__(self, tracker):
             super().__init__()
             self.tracker = tracker
-            
+
         def on_train_begin(self, logs=None):
             self.tracker.start_training()
-            
+
         def on_epoch_begin(self, epoch, logs=None):
             self.tracker.on_epoch_begin(epoch)
+            print(f"\n🚀 Starting Epoch {epoch + 1}/{self.tracker.total_epochs}")
             
+        def on_train_batch_end(self, batch, logs=None):
+            if batch % 15 == 0 and logs:  # Show progress every 15 batches
+                current_loss = logs.get('loss', 0)
+                current_acc = logs.get('class_output_accuracy', 0)
+                bbox_loss = logs.get('bbox_output_loss', 0)
+                class_loss = logs.get('class_output_loss', 0)
+                lr = logs.get('lr', logs.get('learning_rate', 0))
+                
+                # Calculate progress within epoch
+                progress = (batch + 1) / self.tracker.steps_per_epoch
+                progress_bar = "█" * int(progress * 25) + "░" * (25 - int(progress * 25))
+                
+                # Calculate time estimates
+                if hasattr(self.tracker, 'epoch_start_time') and self.tracker.epoch_start_time:
+                    batch_elapsed = time.time() - self.tracker.epoch_start_time
+                    if batch > 0:
+                        avg_batch_time = batch_elapsed / (batch + 1)
+                        remaining_batches = self.tracker.steps_per_epoch - (batch + 1)
+                        eta_epoch = avg_batch_time * remaining_batches
+                        eta_str = f"ETA: {int(eta_epoch//60):02d}:{int(eta_epoch%60):02d}"
+                    else:
+                        eta_str = "ETA: --:--"
+                else:
+                    eta_str = "ETA: --:--"
+                
+                print(f"  [{progress_bar}] {batch + 1}/{self.tracker.steps_per_epoch} "
+                      f"| Loss: {current_loss:.4f} (cls: {class_loss:.4f}, bbox: {bbox_loss:.4f}) "
+                      f"| Acc: {current_acc:.4f} | LR: {lr:.2e} | {eta_str}")
+
         def on_epoch_end(self, epoch, logs=None):
             self.tracker.update_epoch(epoch, logs)
             # Optimize memory after each epoch
@@ -1493,7 +1633,7 @@ def train_with_roboflow_datasets(datasets_base_dir="datasets", dataset_filters=N
     os.makedirs(save_path, exist_ok=True)
 
     progress_callback = ProgressCallback(progress_tracker)
-    
+
     checkpoint = tf.keras.callbacks.ModelCheckpoint(
         os.path.join(save_path, 'model_checkpoint.h5'),
         monitor='val_loss',
@@ -1519,10 +1659,14 @@ def train_with_roboflow_datasets(datasets_base_dir="datasets", dataset_filters=N
 
     callbacks = [progress_callback, checkpoint, early_stopping, reduce_lr]
 
+    # Use direct fit with generators instead of tf.data.Dataset
+    train_generator = trainer.data_generator(X_train, y_train_class, y_train_bbox, trainer.batch_size, augment=True)
+    val_generator = trainer.data_generator(X_val, y_val_class, y_val_bbox, trainer.batch_size, augment=False)
+
     # Treinar
     history = trainer.model.fit(
-        trainer.data_generator(X_train, y_train_class, y_train_bbox, trainer.batch_size, augment=True),
-        validation_data=trainer.data_generator(X_val, y_val_class, y_val_bbox, trainer.batch_size, augment=False),
+        train_generator,
+        validation_data=val_generator,
         steps_per_epoch=steps_per_epoch,
         validation_steps=len(X_val) // trainer.batch_size,
         epochs=epochs,
@@ -1590,6 +1734,9 @@ if __name__ == "__main__":
     print("Desenvolvido para auxiliar pessoas com deficiência visual")
     print("Treinamento usando datasets reais do Roboflow")
     print()
+
+    # Log GPU information
+    log_gpu_info()
 
     # Descobrir datasets disponíveis
     print("Descobrindo datasets disponíveis...")

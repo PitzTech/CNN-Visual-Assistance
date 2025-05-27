@@ -1,4 +1,4 @@
-# Core Machine Learning Libraries - Compatible with Python 3.9+ (tested with 3.10.12)
+# Core Machine Learning Libraries - Compatible with Python 3.9
 tensorflow[and-cuda]
 numpy>=1.19.5,<1.25.0
 scikit-learn>=1.0.0,<1.4.0
