@@ -293,11 +293,11 @@ def main():
     try:
         # Initialize detector with recommended settings
         detector = ClassroomObjectDetector(
-            model_path='yolov8s.pt',  # Recommended: balanced speed/accuracy
+            #model_path='yolov8s.pt',  # Recommended: balanced speed/accuracy
             # Alternative options:
             # model_path='yolov8n.pt',  # Fastest (for low-end hardware)
             # model_path='yolov8m.pt',  # Better accuracy
-            # model_path='yolo11s.pt',  # Latest version (experimental)
+            model_path='yolo11s.pt',  # Latest version (experimental)
             confidence_threshold=0.4  # Lowered for better detection of classroom items
         )
 
